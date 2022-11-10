@@ -1,0 +1,41 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: {{ template "superset.fullname" . }}-gateway
+spec:
+  selector:
+    istio: ingressgateway # use Istio default gateway implementation
+    app: istio-ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+
+---
+
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ template "superset.fullname" . }}
+spec:
+  gateways:
+  - {{ template "superset.fullname" . }}-gateway
+  hosts:
+  - {{ .Values.app.host }}
+  http:
+  - match:
+    - uri:
+        prefix: {{ .Values.app.supersetprefix }}
+    route:
+    - destination:
+        host: {{ template "superset.fullname" . }}.{{ .Values.app.namespace }}.svc.cluster.local
+        port:
+          number: 8088
+      headers:
+        request:
+          set:
+            X-Forwarded-Proto: https

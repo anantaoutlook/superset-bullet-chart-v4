@@ -1,0 +1,45 @@
+image: atlassian/default-image:2
+
+pipelines:
+  branches:
+    dev:
+      - step:
+          services:
+              - docker
+          caches:
+            - pip
+            - docker
+          image: python:3.7.4-alpine3.10
+          name: Building Docker Image
+          script:
+            - pip3 install awscli
+            - apk add curl
+            - apk add jq
+            - IMAGEURI="233393422161.dkr.ecr.us-east-1.amazonaws.com"
+            - IMAGE="gt/be/superset"
+            - INVIMAGE="gt/be/superset/invocation"
+            - EKS_CLUSTERNAME=hc-eks-le
+            - EKS_NAMESPACE=gt-dev
+            - APP_NAME=gt-be-superset
+            - APPENV=dev
+            - DEPLOY_HOST=superset.dev.gotara.com
+            - INVOCATION_COMMAND=install
+            - TAG=$BITBUCKET_BRANCH-$BITBUCKET_BUILD_NUMBER
+            - export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+            - aws configure set aws_access_key_id "${AWS_ACCESS_KEY_ID}"
+            - aws configure set aws_secret_access_key "${AWS_SECRET_ACCESS_KEY}"
+            - eval $(aws ecr get-login --no-include-email --region us-east-1 | sed 's;https://;;g')
+            - aws ecr describe-repositories --repository-names $IMAGE > /dev/null 2>&1 || aws ecr create-repository --repository-name $IMAGE
+            - aws ecr describe-repositories --repository-names $INVIMAGE > /dev/null 2>&1 || aws ecr create-repository --repository-name $INVIMAGE
+            # build the image
+            # - docker system prune -a
+            - docker build --no-cache --build-arg APPENV=dev -f docker-images/superset/Dockerfile -t $IMAGE:$TAG .
+            - docker tag $IMAGE:$TAG $IMAGEURI/$IMAGE:$TAG
+            - docker tag $IMAGE:$TAG $IMAGEURI/$IMAGE:latest
+            - docker push $IMAGEURI/$IMAGE:$TAG
+            - docker push $IMAGEURI/$IMAGE:latest
+            - docker build --no-cache -f docker-images/invocation/Dockerfile -t $INVIMAGE:$TAG .
+            - docker tag $INVIMAGE:$TAG $IMAGEURI/$INVIMAGE:$TAG
+            - docker push $IMAGEURI/$INVIMAGE:$TAG
+            - docker images
+            - docker run --rm -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} -e AWS_DEFAULT_REGION=us-east-1 -e EKS_CLUSTERNAME=$EKS_CLUSTERNAME  -e EKS_NAMESPACE=$EKS_NAMESPACE -e IMAGEURI=$IMAGEURI -e IMAGE=$IMAGE -e TAG=$TAG -e BRANCH_NAME=$BITBUCKET_BRANCH -e APP_NAME=$APP_NAME -e APPENV=$APPENV -e DEPLOY_HOST=$DEPLOY_HOST  $INVIMAGE:$TAG $INVOCATION_COMMAND
